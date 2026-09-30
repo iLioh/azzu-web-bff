@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Azzu.WebBff.Application\Azzu.WebBff.Application.csproj" />
+    <ProjectReference Include="..\Azzu.WebBff.Contracts\Azzu.WebBff.Contracts.csproj" />
+    <ProjectReference Include="..\Azzu.WebBff.Domain\Azzu.WebBff.Domain.csproj" />
+    <ProjectReference Include="..\Azzu.WebBff.Infrastructure\Azzu.WebBff.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="8.0.31" />
+  </ItemGroup>
+</Project>
+

@@ -1,0 +1,32 @@
+name: build-and-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore Azzu.WebBff.sln
+      - name: Build
+        run: dotnet build Azzu.WebBff.sln --no-restore --configuration Release
+      - name: Test
+        run: dotnet test Azzu.WebBff.sln --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: warn
+

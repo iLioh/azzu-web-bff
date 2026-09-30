@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Azzu.WebBff.Application\Azzu.WebBff.Application.csproj" />
+    <ProjectReference Include="..\Azzu.WebBff.Contracts\Azzu.WebBff.Contracts.csproj" />
+    <ProjectReference Include="..\Azzu.WebBff.Domain\Azzu.WebBff.Domain.csproj" />
+  </ItemGroup>
+</Project>
+

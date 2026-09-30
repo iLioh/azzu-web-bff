@@ -1,0 +1,12 @@
+.git
+.github
+**/bin
+**/obj
+**/TestResults
+.env
+.env.*
+appsettings.Local.json
+appsettings.*.local.json
+secrets
+certificates
+
