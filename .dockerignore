@@ -9,4 +9,14 @@ appsettings.Local.json
 appsettings.*.local.json
 secrets
 certificates
-
+docs
+scripts
+infra
+.azure
+.codebase-memory
+**/*.pfx
+**/*.p12
+**/*.key
+**/*.pem
+**/*.zip
+**/*kubeconfig*

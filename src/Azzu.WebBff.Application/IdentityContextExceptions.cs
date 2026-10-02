@@ -8,6 +8,10 @@ public sealed class CustomerIdentityNotLinkedException(string detail) : Exceptio
 {
 }
 
+public sealed class CustomerAccessDeniedException(string detail) : Exception(detail)
+{
+}
+
 public sealed class CustomerIdentityMappingUnavailableException(string detail, Exception? innerException = null)
     : Exception(detail, innerException)
 {
@@ -16,3 +20,5 @@ public sealed class CustomerIdentityMappingUnavailableException(string detail, E
 public sealed class AuthenticationContextUnavailableException(string detail) : Exception(detail)
 {
 }
+
+public sealed class BankingReauthenticationRequiredException() : Exception("Sign in again to authorize banking access.");

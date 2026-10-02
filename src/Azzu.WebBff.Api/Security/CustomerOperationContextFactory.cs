@@ -17,15 +17,19 @@ public sealed class CustomerOperationContextFactory(ICustomerIdentityMapping ide
 
         var issuer = httpContext.User.FindFirstValue("iss");
         var subject = httpContext.User.FindFirstValue("sub");
+        var objectId = httpContext.User.FindFirstValue("oid");
+        var tenantId = httpContext.User.FindFirstValue("tid");
 
-        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
+        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)
+            || !Guid.TryParse(objectId, out var oid) || oid == Guid.Empty
+            || !Guid.TryParse(tenantId, out var tenant) || tenant == Guid.Empty)
         {
             throw new InvalidSessionContextException(
-                "The authenticated session does not contain a valid issuer and subject.");
+                "The authenticated session does not contain a valid issuer, session subject and Entra object/tenant identity.");
         }
 
         var customerId = await identityMapping.ResolveCustomerIdAsync(
-            new ExternalIdentity(issuer, subject),
+            new ExternalIdentity("ENTRA_EXTERNAL_ID", issuer, "OID", objectId!, tenantId),
             cancellationToken);
 
         if (string.IsNullOrWhiteSpace(customerId))

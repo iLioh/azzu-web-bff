@@ -31,7 +31,14 @@ public static class WebBffEndpointExtensions
 
     private static void MapAuthenticationRoutes(RouteGroupBuilder api)
     {
+        api.MapGet("/auth/status", (HttpContext context, IOptions<OidcOptions> options) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { loginAvailable = options.IsOidcConfigured() });
+        }).AllowAnonymous();
+
         api.MapGet("/auth/login", (
+            string? returnUrl,
             IOptions<OidcOptions> oidcOptions) =>
         {
             if (!oidcOptions.IsOidcConfigured())
@@ -41,13 +48,15 @@ public static class WebBffEndpointExtensions
 
             var properties = new AuthenticationProperties
             {
-                RedirectUri = "/api/v1/auth/session"
+                RedirectUri = PortalReturnUrl.Normalize(returnUrl)
             };
             return Results.Challenge(properties, [AuthenticationExtensions.OidcScheme]);
         }).AllowAnonymous();
 
         api.MapGet("/auth/step-up", (
+            HttpContext context,
             string? operation,
+            string? returnUrl,
             IOptions<OidcOptions> oidcOptions,
             StepUpChallengeFactory challengeFactory) =>
         {
@@ -58,13 +67,20 @@ public static class WebBffEndpointExtensions
 
             var properties = challengeFactory.Create(
                 string.IsNullOrWhiteSpace(operation) ? StepUpChallengeFactory.DefaultOperation : operation,
-                "/api/v1/auth/session");
+                PortalReturnUrl.Normalize(returnUrl));
+            StepUpChallengeFactory.BindIdentity(properties, context.User);
             return Results.Challenge(properties, [AuthenticationExtensions.OidcScheme]);
         }).RequireAuthorization();
     }
 
     private static void MapAuthenticatedRoutes(RouteGroupBuilder api)
     {
+        api.MapGet("/auth/csrf", (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            IssueAntiforgeryTokens(context, antiforgery);
+            return Results.NoContent();
+        });
+
         api.MapGet("/auth/session", async (
             HttpContext context,
             IAntiforgery antiforgery,
@@ -82,20 +98,7 @@ public static class WebBffEndpointExtensions
                 throw new InvalidSessionContextException("The web session ticket is missing or expired.");
             }
 
-            var antiforgeryTokens = antiforgery.GetAndStoreTokens(context);
-            if (string.IsNullOrWhiteSpace(antiforgeryTokens.RequestToken))
-            {
-                throw new InvalidOperationException("An antiforgery request token could not be issued.");
-            }
-
-            context.Response.Cookies.Append("XSRF-TOKEN", antiforgeryTokens.RequestToken, new CookieOptions
-            {
-                Path = "/",
-                HttpOnly = false,
-                Secure = true,
-                SameSite = SameSiteMode.Lax
-            });
-            context.Response.Headers.CacheControl = "no-store";
+            IssueAntiforgeryTokens(context, antiforgery);
 
             var methods = context.User.FindAll("amr")
                 .Select(claim => claim.Value)
@@ -114,6 +117,8 @@ public static class WebBffEndpointExtensions
         api.MapPost("/auth/logout", async (HttpContext context) =>
         {
             await context.SignOutAsync(AuthenticationExtensions.CookieScheme);
+            context.Response.Cookies.Delete("XSRF-TOKEN", new CookieOptions { Path = "/", Secure = true, SameSite = SameSiteMode.Lax });
+            context.Response.Cookies.Delete("__Host-AzzuAntiforgery", new CookieOptions { Path = "/", Secure = true, HttpOnly = true, SameSite = SameSiteMode.Lax });
             context.Response.Headers.CacheControl = "no-store";
             return Results.NoContent();
         });
@@ -330,6 +335,17 @@ public static class WebBffEndpointExtensions
                 cancellationToken);
             return TypedResults.Accepted($"/api/v1/operations/{operation.Id}", operation);
         }).AddEndpointFilter<IdempotencyKeyFilter>().RequireRateLimiting("sensitive");
+    }
+
+    private static void IssueAntiforgeryTokens(HttpContext context, IAntiforgery antiforgery)
+    {
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        if (string.IsNullOrWhiteSpace(tokens.RequestToken)) throw new InvalidOperationException("An antiforgery request token could not be issued.");
+        context.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken, new CookieOptions
+        {
+            Path = "/", HttpOnly = false, Secure = true, SameSite = SameSiteMode.Lax
+        });
+        context.Response.Headers.CacheControl = "no-store";
     }
 
     private static ProblemHttpResult OidcUnavailable() =>

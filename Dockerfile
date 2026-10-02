@@ -1,11 +1,12 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-azurelinux3.0-distroless-extra@sha256:1e65650d5745b73fa5a819fc858dd0b03e899dd8efc107fd895dd1fff493c661 AS base
 WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
-USER $APP_UID
+USER 1654
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
+COPY ["Directory.Build.props", "./"]
 COPY ["src/Azzu.WebBff.Api/Azzu.WebBff.Api.csproj", "src/Azzu.WebBff.Api/"]
 COPY ["src/Azzu.WebBff.Application/Azzu.WebBff.Application.csproj", "src/Azzu.WebBff.Application/"]
 COPY ["src/Azzu.WebBff.Contracts/Azzu.WebBff.Contracts.csproj", "src/Azzu.WebBff.Contracts/"]
@@ -19,4 +20,3 @@ FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "Azzu.WebBff.Api.dll"]
-

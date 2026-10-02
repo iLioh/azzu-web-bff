@@ -86,6 +86,45 @@ public sealed class WebBffSmokeTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task LoginStatusIsAnonymousNoStoreAndDoesNotExposeSettings()
+    {
+        using var client = _factory.CreateClient();
+        using var response = await client.GetAsync("/api/v1/auth/status");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal("{\"loginAvailable\":false}", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task LogoutRequiresCsrfAndClearsCookiesOnSuccess()
+    {
+        using var client = CreateAuthenticatedClient();
+        using var rejected = await client.PostAsync("/api/v1/auth/logout", null);
+        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        await AttachCsrfTokenAsync(client);
+        using var response = await client.PostAsync("/api/v1/auth/logout", null);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        Assert.Contains(cookies, cookie => cookie.StartsWith("__Host-AzzuSession=", StringComparison.Ordinal));
+        Assert.Contains(cookies, cookie => cookie.StartsWith("XSRF-TOKEN=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LogoutCanBootstrapCsrfWhileMappingIsUnavailable()
+    {
+        using var client = CreateAuthenticatedClient("mapping-unavailable");
+        using var failed = await client.GetAsync("/api/v1/auth/session");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failed.StatusCode);
+        using var csrf = await client.GetAsync("/api/v1/auth/csrf");
+        Assert.Equal(HttpStatusCode.NoContent, csrf.StatusCode);
+        var cookie = csrf.Headers.GetValues("Set-Cookie").Single(value => value.StartsWith("XSRF-TOKEN=", StringComparison.Ordinal));
+        var value = cookie.Split(';', 2)[0]["XSRF-TOKEN=".Length..];
+        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", Uri.UnescapeDataString(value));
+        using var logout = await client.PostAsync("/api/v1/auth/logout", null);
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+    }
+
+    [Fact]
     public async Task ExpiredSessionReturns401AndClearsSessionCookie()
     {
         using var client = CreateAuthenticatedClient("linked", expired: true);
@@ -219,6 +258,28 @@ public sealed class WebBffSmokeTests : IClassFixture<WebApplicationFactory<Progr
         Assert.False(StepUpChallengeFactory.HasRequiredContext(properties, insufficientPrincipal));
     }
 
+    [Theory]
+    [InlineData("missing-oid")]
+    [InlineData("missing-tenant")]
+    public async Task MissingMappingClaimsClearOnlyInvalidSession(string subject)
+    {
+        using var client = CreateAuthenticatedClient(subject);
+        using var response = await client.GetAsync("/api/v1/accounts");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("INVALID_SESSION_CONTEXT", (await ReadProblemAsync(response)).Code);
+        Assert.True(response.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public async Task BlockedCustomerPreservesAuthenticatedSession()
+    {
+        using var client = CreateAuthenticatedClient("access-denied");
+        using var response = await client.GetAsync("/api/v1/accounts");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("CUSTOMER_ACCESS_DENIED", (await ReadProblemAsync(response)).Code);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
+    }
+
     private HttpClient CreateAuthenticatedClient(string subject = "linked", bool expired = false)
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -259,9 +320,10 @@ public sealed class WebBffSmokeTests : IClassFixture<WebApplicationFactory<Progr
             CancellationToken cancellationToken) =>
             identity.Subject switch
             {
-                "linked" => Task.FromResult<string?>("customer-123"),
-                "unlinked" => Task.FromResult<string?>(null),
-                "mapping-unavailable" => throw new CustomerIdentityMappingUnavailableException("Mapping unavailable."),
+                "00000000-0000-0000-0000-000000000001" => Task.FromResult<string?>("customer-123"),
+                "00000000-0000-0000-0000-000000000002" => Task.FromResult<string?>(null),
+                "00000000-0000-0000-0000-000000000003" => throw new CustomerIdentityMappingUnavailableException("Mapping unavailable."),
+                "00000000-0000-0000-0000-000000000004" => throw new CustomerAccessDeniedException("Banking access denied."),
                 _ => Task.FromResult<string?>(null)
             };
     }
@@ -292,6 +354,21 @@ public sealed class WebBffSmokeTests : IClassFixture<WebApplicationFactory<Progr
             if (!string.Equals(subject, "omit", StringComparison.Ordinal))
             {
                 claims.Add(new Claim("sub", subject));
+            }
+            if (subject != "missing-oid")
+            {
+                claims.Add(new Claim("oid", subject switch
+                {
+                    "linked" => "00000000-0000-0000-0000-000000000001",
+                    "unlinked" => "00000000-0000-0000-0000-000000000002",
+                    "mapping-unavailable" => "00000000-0000-0000-0000-000000000003",
+                    "access-denied" => "00000000-0000-0000-0000-000000000004",
+                    _ => "00000000-0000-0000-0000-000000000005"
+                }));
+            }
+            if (subject != "missing-tenant")
+            {
+                claims.Add(new Claim("tid", "db24bd50-f509-4173-9375-d30840ec6f39"));
             }
 
             var identity = new ClaimsIdentity(claims, Scheme.Name, "name", ClaimTypes.Role);

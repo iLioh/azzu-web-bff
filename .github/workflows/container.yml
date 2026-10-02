@@ -1,0 +1,242 @@
+name: container-build-scan-publish
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_to_acr:
+        description: Publish the scanned image to existing DEV ACR (requires DEV approval)
+        type: boolean
+        default: false
+      deploy_to_dev:
+        description: Update an already bootstrapped private BFF (requires CD enabled and DEV approval)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bff-container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Reject source secrets before build
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: '1'
+          format: json
+          output: source-security-report.json
+          skip-dirs: .git
+      - name: Build and test Release
+        run: |
+          dotnet restore Azzu.WebBff.sln -p:NuGetAudit=true -p:NuGetAuditMode=all -warnaserror:NU1901,NU1902,NU1903,NU1904
+          dotnet build Azzu.WebBff.sln --no-restore -c Release
+          dotnet test Azzu.WebBff.sln --no-build -c Release
+      - name: Test release safety gates without accessing AKS
+        shell: pwsh
+        run: ./scripts/Test-BffRelease.ps1
+      - name: Build archive without Docker or ACR Tasks
+        shell: pwsh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: ./scripts/Build-ContainerArchive.ps1 -ImageTag $env:IMAGE_TAG
+      - name: Smoke test Linux image with read-only filesystem
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker load --input artifacts/container/azzu-web-bff.tar.gz
+          docker run --detach --name azzu-bff-ci --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --tmpfs /tmp --tmpfs /home/app:uid=1654,gid=1654 \
+            --publish 127.0.0.1:18080:8080 --env ASPNETCORE_ENVIRONMENT=Development \
+            "azzu-web-bff:$IMAGE_TAG"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health/live > /dev/null; then
+              curl --fail --silent http://127.0.0.1:18080/health/ready > /dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Linux container health checks failed.'
+          exit 1
+      - name: Stop disposable CI container
+        if: always()
+        run: docker stop azzu-bff-ci || true
+      - name: Scan image and fail on high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: artifacts/container/azzu-web-bff.tar.gz
+          scan-type: image
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: json
+          output: artifacts/container/security-report.json
+      - name: Produce CycloneDX SBOM
+        if: always() && hashFiles('artifacts/container/azzu-web-bff.tar.gz') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: artifacts/container/azzu-web-bff.tar.gz
+          scan-type: image
+          format: cyclonedx
+          output: artifacts/container/sbom.cdx.json
+      - name: Redact secret matches before sharing scan evidence
+        if: always() && hashFiles('artifacts/container/security-report.json') != ''
+        shell: pwsh
+        run: |
+          $reportPath = 'artifacts/container/security-report.json'
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -AsHashtable
+          foreach ($result in $report.Results) {
+            if ($result.ContainsKey('Secrets')) {
+              $result.Secrets = @($result.Secrets | ForEach-Object {
+                @{ RuleID = $_.RuleID; Severity = $_.Severity; Category = $_.Category; Title = $_.Title }
+              })
+            }
+          }
+          $report | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $reportPath
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-security-${{ github.sha }}
+          path: |
+            artifacts/container/security-report.json
+            artifacts/container/sbom.cdx.json
+          if-no-files-found: warn
+      - name: Upload validated image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bff-image-${{ github.sha }}
+          path: artifacts/container/azzu-web-bff.tar.gz
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    if: vars.AZZU_BFF_PUBLISH_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.publish_to_acr || inputs.deploy_to_dev)))
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    outputs:
+      image_digest: ${{ steps.image.outputs.digest }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check identity configuration
+        env:
+          CLIENT_ID: ${{ vars.AZURE_BFF_CICD_CLIENT_ID }}
+          TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          test -n "$CLIENT_ID" && test -n "$TENANT_ID" && test -n "$SUBSCRIPTION_ID"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: bff-image-${{ github.sha }}
+          path: image
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ vars.AZURE_BFF_CICD_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Load and publish immutable commit tag
+        id: image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker load --input image/azzu-web-bff.tar.gz
+          az acr login --name acrneobancoazzu8466fe
+          image="acrneobancoazzu8466fe.azurecr.io/azzu-web-bff:$IMAGE_TAG"
+          if az acr repository show --name acrneobancoazzu8466fe --image "azzu-web-bff:$IMAGE_TAG" > /dev/null 2>&1; then
+            echo 'Tag already exists; refusing to overwrite.'
+            exit 1
+          fi
+          docker tag "azzu-web-bff:$IMAGE_TAG" "$image"
+          docker push "$image"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image")
+          [[ "$digest" =~ ^acrneobancoazzu8466fe\.azurecr\.io/azzu-web-bff@sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Published: `%s`\n' "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: End ephemeral registry and Azure session
+        if: always()
+        run: |
+          docker logout acrneobancoazzu8466fe.azurecr.io
+          az logout
+
+  deploy:
+    if: vars.AZZU_BFF_CD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy_to_dev)
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ vars.AZURE_BFF_CICD_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Require approved namespace-scoped access model
+        env:
+          KUBECTL_VERSION: ${{ vars.AZZU_KUBECTL_VERSION }}
+          KUBELOGIN_VERSION: ${{ vars.AZZU_KUBELOGIN_VERSION }}
+        run: |
+          set -euo pipefail
+          test -n "$KUBECTL_VERSION" && test -n "$KUBELOGIN_VERSION"
+          auth=$(az aks show --name aks-neobanco-azzu-dev --resource-group rg-neobanco-azzu-dev --query aadProfile -o json)
+          jq -e '.managed == true and .enableAzureRbac == true' <<< "$auth" > /dev/null
+          # No AKS update, admin credentials, or fallback to legacy kubeconfig.
+      - uses: azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415 # v4
+        with:
+          version: ${{ vars.AZZU_KUBECTL_VERSION }}
+      - uses: azure/use-kubelogin@76597ae0fcbaace21b05e13a2cbf8daee2c6e820 # v1
+        with:
+          kubelogin-version: ${{ vars.AZZU_KUBELOGIN_VERSION }}
+      - name: Obtain user context and reject excessive privileges
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="$RUNNER_TEMP/azzu-bff-user-context"
+          az aks get-credentials --name aks-neobanco-azzu-dev --resource-group rg-neobanco-azzu-dev --format exec --file "$KUBECONFIG"
+          kubelogin convert-kubeconfig -l azurecli
+          test "$(kubectl config current-context)" = 'aks-neobanco-azzu-dev'
+          test "$(kubectl auth can-i patch deployment/azzu-web-bff -n azzu-web-dev)" = 'yes'
+          test "$(kubectl auth can-i get secrets -n azzu-web-dev)" = 'no'
+          test "$(kubectl auth can-i create clusterrolebindings)" = 'no'
+          test "$(kubectl auth can-i patch deployments -n itforbanking-dev)" = 'no'
+      - name: Server-side preview then update only the reviewed image digest
+        shell: pwsh
+        env:
+          IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+        run: |
+          $env:KUBECONFIG = Join-Path $env:RUNNER_TEMP 'azzu-bff-user-context'
+          ./scripts/Update-BffRelease.ps1 -ImageDigest $env:IMAGE_DIGEST -Preview
+          ./scripts/Update-BffRelease.ps1 -ImageDigest $env:IMAGE_DIGEST
+      - name: End ephemeral deployment session
+        if: always()
+        shell: pwsh
+        run: |
+          $contextPath = Join-Path $env:RUNNER_TEMP 'azzu-bff-user-context'
+          if (Test-Path -LiteralPath $contextPath) { Remove-Item -LiteralPath $contextPath }
+          az logout

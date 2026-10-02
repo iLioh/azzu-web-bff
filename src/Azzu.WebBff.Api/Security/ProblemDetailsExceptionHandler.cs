@@ -22,6 +22,11 @@ public sealed class ProblemDetailsExceptionHandler(
     {
         var (status, title, type, code) = exception switch
         {
+            BankingReauthenticationRequiredException => (
+                StatusCodes.Status401Unauthorized,
+                "Banking access requires reauthentication",
+                "https://azzu.tech/problems/banking-reauthentication-required",
+                "BANKING_REAUTHENTICATION_REQUIRED"),
             InvalidSessionContextException => (
                 StatusCodes.Status401Unauthorized,
                 "The web session is invalid",
@@ -37,6 +42,11 @@ public sealed class ProblemDetailsExceptionHandler(
                 "Customer identity mapping is temporarily unavailable",
                 "https://azzu.tech/problems/customer-identity-mapping-unavailable",
                 "CUSTOMER_IDENTITY_MAPPING_UNAVAILABLE"),
+            CustomerAccessDeniedException => (
+                StatusCodes.Status403Forbidden,
+                "Banking access is not permitted",
+                "https://azzu.tech/problems/customer-access-denied",
+                "CUSTOMER_ACCESS_DENIED"),
             AuthenticationContextUnavailableException => (
                 StatusCodes.Status503ServiceUnavailable,
                 "Step-up authentication is not configured",
@@ -71,6 +81,9 @@ public sealed class ProblemDetailsExceptionHandler(
                 "WWW-Authenticate",
                 $"OIDC error=\"insufficient_user_authentication\", step_up_uri=\"/api/v1/auth/step-up?operation={operation}\"");
         }
+        if (exception is BankingReauthenticationRequiredException)
+            httpContext.Response.Headers.Append("WWW-Authenticate",
+                "OIDC error=\"interaction_required\", reauthentication_uri=\"/api/v1/auth/login\"");
 
         LogUnhandledRequest(logger, code, exception);
 
