@@ -1,0 +1,17 @@
+{
+  "keyProperties": {
+    "exportable": true,
+    "keyType": "RSA",
+    "keySize": 3072,
+    "reuseKey": false
+  },
+  "secretProperties": { "contentType": "application/x-pkcs12" },
+  "x509CertificateProperties": {
+    "subject": "CN=azzu-web-bff-dev-oidc",
+    "validityInMonths": 3,
+    "keyUsage": ["digitalSignature"]
+  },
+  "issuerParameters": { "name": "Self" },
+  "attributes": { "enabled": true },
+  "lifetimeActions": []
+}

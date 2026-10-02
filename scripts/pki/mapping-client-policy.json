@@ -1,0 +1,17 @@
+{
+  "issuerParameters": { "name": "Unknown" },
+  "keyProperties": {
+    "exportable": true,
+    "keySize": 3072,
+    "keyType": "RSA",
+    "reuseKey": false
+  },
+  "secretProperties": { "contentType": "application/x-pkcs12" },
+  "x509CertificateProperties": {
+    "subject": "CN=azzu-web-bff-dev",
+    "ekus": ["1.3.6.1.5.5.7.3.2"],
+    "keyUsage": ["digitalSignature"],
+    "validityInMonths": 1
+  },
+  "lifetimeActions": []
+}

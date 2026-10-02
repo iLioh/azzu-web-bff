@@ -17,8 +17,10 @@ Web endpoint
 The adapter will:
 
 - translate BFF DTOs to the approved internal contract and never expose Mobile-specific payloads to Angular;
-- send the immutable `customerId`, channel, correlation/trace context and idempotency key as trusted service-to-service context;
-- authenticate workload-to-workload with Managed/Workload Identity when the target supports it; no user token forwarding by default;
+- authenticate customer operations with server-held delegated Entra v2 access tokens for the distinct Banking API resource, using approved operation scopes;
+- never send `X-Customer-Id` as authority; Banking API independently resolves its validated `iss/tid/oid` through Mapping and enforces ownership;
+- propagate channel, correlation/trace context and the original idempotency key as metadata, not authorization;
+- keep Workload Identity for Azure resource access separate from user-delegated API authentication;
 - apply strict connect/request timeouts, bounded response sizes and cancellation;
 - retry only safe reads and explicitly retryable failures; never blindly retry a monetary write;
 - propagate the same idempotency key for sensitive writes, while Banking Services/Core owns durable deduplication and atomic response replay;
@@ -33,4 +35,6 @@ The adapter will:
 4. Add contract/integration tests against a non-production instance.
 5. Add sensitive writes only after durable idempotency, object authorization and step-up requirements are proven.
 
-No adapter is implemented in this change.
+The delegated transport and server-side token provider are implemented locally, disabled by default.
+The typed `IBankingOperations`/`IChannelSecurityOperations` adapters still await Sara's approved routes,
+schemas and errors. No API responses or banking rules are fabricated. See `DELEGATED_BANKING_TOKENS_2026-10-01.md`.

@@ -1,0 +1,17 @@
+{
+  "Oidc": {
+    "Authority": "https://db24bd50-f509-4173-9375-d30840ec6f39.ciamlogin.com/db24bd50-f509-4173-9375-d30840ec6f39/v2.0",
+    "ClientId": "cecb6910-e653-4129-8376-c044209a751e",
+    "CredentialMode": "Certificate",
+    "ClientSecret": "",
+    "CallbackPath": "/api/v1/auth/callback",
+    "TokenEndpoint": "https://db24bd50-f509-4173-9375-d30840ec6f39.ciamlogin.com/db24bd50-f509-4173-9375-d30840ec6f39/oauth2/v2.0/token",
+    "Certificate": {
+      "KeyVaultUri": "https://kv-azzu-web-dev-8466fe.vault.azure.net/",
+      "Name": "azzu-web-bff-dev-oidc",
+      "Version": "",
+      "ExpectedSha256": "",
+      "WorkloadIdentityClientId": "6cdef73b-41a2-4aa5-b294-db6225286aed"
+    }
+  }
+}

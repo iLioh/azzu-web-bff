@@ -1,0 +1,19 @@
+{
+  "Oidc": {
+    "Authority": "https://azzucustomer.ciamlogin.com/db24bd50-f509-4173-9375-d30840ec6f39/v2.0",
+    "ClientId": "cecb6910-e653-4129-8376-c044209a751e",
+    "ClientSecret": "",
+    "CallbackPath": "/api/v1/auth/callback"
+  },
+  "IdentityMapping": {
+    "Enabled": false,
+    "Endpoint": "https://identity-mapping-onprem.itforbanking-dev.svc.cluster.local:7443/",
+    "TrustedIssuer": "https://db24bd50-f509-4173-9375-d30840ec6f39.ciamlogin.com/db24bd50-f509-4173-9375-d30840ec6f39/v2.0",
+    "TenantId": "db24bd50-f509-4173-9375-d30840ec6f39",
+    "TimeoutSeconds": 5,
+    "ClientCertificatePath": "/run/secrets/mapping-client.crt",
+    "ClientKeyPath": "/run/secrets/mapping-client.key",
+    "RootCertificatePath": "/run/secrets/mapping-ca.pem",
+    "DisableRevocationCheckForDevelopment": false
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "IdentityMapping": {
+    "Enabled": true,
+    "Endpoint": "https://identity-mapping-onprem.itforbanking-dev.svc.cluster.local:7443/",
+    "TrustedIssuer": "https://db24bd50-f509-4173-9375-d30840ec6f39.ciamlogin.com/db24bd50-f509-4173-9375-d30840ec6f39/v2.0",
+    "TenantId": "db24bd50-f509-4173-9375-d30840ec6f39",
+    "TimeoutSeconds": 15,
+    "CertificateSource": "KeyVault",
+    "KeyVaultUri": "https://kv-azzu-web-dev-8466fe.vault.azure.net/",
+    "KeyVaultCertificateName": "azzu-web-bff-dev-mapping-mtls",
+    "KeyVaultCertificateVersion": "32d1a6918ebc48e68242d557c962ad57",
+    "WorkloadIdentityClientId": "6cdef73b-41a2-4aa5-b294-db6225286aed",
+    "ExpectedClientCertificateSha256": "05204949158241B2181C4409A9E77F8D7EA75E6F6446A0A4083755465AD410A0",
+    "ExpectedRootCertificateSha256": "A39C981E537F60D62EF541960183A397B320A4D71877D05D2E04E38F8115D78E",
+    "ClientCertificatePath": "",
+    "ClientKeyPath": "",
+    "RootCertificatePath": "/public/ca.crt",
+    "DisableRevocationCheckForDevelopment": true
+  }
+}

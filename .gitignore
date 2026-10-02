@@ -36,3 +36,15 @@ out/
 docs/pki/
 docs/config/*.verified.json
 *.csr
+*.cer
+*.der
+*.dpapi
+*kubeconfig*
+__pycache__/
+*.pyc
+# Historical local audit evidence is deliberately not part of the public handoff.
+docs/AUTH_LOCAL_HANDOFF_2026-10-01.md
+docs/BFF_READINESS_REVIEW_2026-10-01.md
+docs/ENTRA_MAPPING_PROGRESS_2026-10-01.md
+docs/OIDC_LOGIN_READINESS_2026-10-01.md
+docs/WEB_READINESS_2026-10-01.md
