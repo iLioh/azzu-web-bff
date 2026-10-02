@@ -9,6 +9,21 @@ using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAzzuTrustedProxy(builder.Configuration);
 
+var serverTlsOptions = builder.Configuration.GetSection("ServerTls").Get<ServerTlsOptions>() ?? new();
+using var serverTlsMaterial = serverTlsOptions.Enabled
+    ? await KeyVaultServerTlsLoader.FromWorkloadIdentity(serverTlsOptions).LoadAsync(serverTlsOptions, CancellationToken.None)
+    : null;
+if (serverTlsMaterial is not null)
+{
+    builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(serverTlsOptions.Port, endpoint =>
+        endpoint.UseHttps(https =>
+        {
+            https.ServerCertificate = serverTlsMaterial.Context.TargetCertificate;
+            https.SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13;
+            https.OnAuthenticate = (_, authentication) => authentication.ServerCertificateContext = serverTlsMaterial.Context;
+        })));
+}
+
 builder.Services.AddProblemDetails(options =>
 {
     options.CustomizeProblemDetails = context =>
