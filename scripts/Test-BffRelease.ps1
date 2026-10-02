@@ -65,4 +65,5 @@ foreach ($case in @('two-replicas', 'rolling', 'wrong-sa', 'writable', 'http', '
 $rejected = $false
 try { & $releaseScript -ImageDigest 'untrusted.example/bff:latest' -Preview } catch { $rejected = $true }
 if (-not $rejected) { throw 'Untrusted or mutable image reference was accepted.' }
+$global:LASTEXITCODE = 0 # Expected simulated kubectl failures must not fail GitHub's pwsh wrapper.
 Write-Output 'PASS: 10 release gate scenarios; no cluster access or live mutations.'
